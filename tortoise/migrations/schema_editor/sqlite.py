@@ -59,9 +59,10 @@ class SqliteSchemaEditor(SqliteQuotingMixin, BaseSchemaEditor):
     async def add_field(self, model, field_name: str) -> None:
         field = model._meta.fields_map[field_name]
         if isinstance(field, ManyToManyFieldInstance):
-            table_string = self._get_m2m_table_definition(model, field)
-            if table_string:
-                await self._run_sql(table_string)
+            if field.through not in self._known_model_tables:
+                table_string = self._get_m2m_table_definition(model, field)
+                if table_string:
+                    await self._run_sql(table_string)
             return
         qualified_table = self._qualify_table_name(model._meta.db_table, model._meta.schema)
         if isinstance(field, ForeignKeyFieldInstance):

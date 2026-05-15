@@ -62,6 +62,7 @@ class BaseSchemaEditor(SchemaQuotingMixin):
         self.atomic_migration = connection.capabilities.can_rollback_ddl and atomic
         self.collect_sql = collect_sql
         self.collected_sql: list[str] = []
+        self._known_model_tables: frozenset[str] = frozenset()
 
     async def _run_sql(self, sql: str) -> None:
         """Execute DDL SQL. Subclasses may override for backend-specific handling.
@@ -442,6 +443,8 @@ class BaseSchemaEditor(SchemaQuotingMixin):
 
         for m2m_field in model._meta.m2m_fields:
             m2m_field_obj = cast(ManyToManyFieldInstance, model._meta.fields_map[m2m_field])
+            if m2m_field_obj.through in self._known_model_tables:
+                continue
             m2m_create_string = self._get_m2m_table_definition(model, m2m_field_obj)
             if m2m_create_string:
                 m2m_tables_for_create.append(m2m_create_string)
@@ -486,6 +489,8 @@ class BaseSchemaEditor(SchemaQuotingMixin):
         schema = model._meta.schema
         for field_name in model._meta.m2m_fields:
             field = cast(ManyToManyFieldInstance, model._meta.fields_map[field_name])
+            if field.through in self._known_model_tables:
+                continue
             await self._run_sql(
                 self.DELETE_TABLE_TEMPLATE.format(
                     table=self._qualify_table_name(field.through, schema)
@@ -501,9 +506,10 @@ class BaseSchemaEditor(SchemaQuotingMixin):
     async def add_field(self, model: type[Model], field_name: str) -> None:
         field = model._meta.fields_map[field_name]
         if isinstance(field, ManyToManyFieldInstance):
-            table_string = self._get_m2m_table_definition(model, field)
-            if table_string:
-                await self._run_sql(table_string)
+            if field.through not in self._known_model_tables:
+                table_string = self._get_m2m_table_definition(model, field)
+                if table_string:
+                    await self._run_sql(table_string)
             return
 
         if isinstance(field, ForeignKeyFieldInstance):

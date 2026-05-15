@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tortoise.migrations.operations import Operation
+from tortoise.migrations.operations import CreateModel, Operation
 from tortoise.migrations.schema_editor.base import BaseSchemaEditor
 from tortoise.migrations.schema_generator.state import State
 from tortoise.transactions import in_transaction
@@ -47,6 +47,12 @@ class Migration:
         need_old_state = (collect_sql and schema_editor) or (
             not dry_run and schema_editor is not None
         )
+        if schema_editor:
+            all_tables: set[str] = set()
+            for op in self.operations:
+                if isinstance(op, CreateModel):
+                    all_tables.add(op.model._meta.db_table)
+            schema_editor._known_model_tables = frozenset(all_tables)
         for operation in self.operations:
             old_state = state.clone() if need_old_state else None
             operation.state_forward(self.app_label, state)
@@ -101,6 +107,10 @@ class Migration:
         if not need_old_state and self.operations:
             # Single working copy so state_forward doesn't mutate the original
             new_state = state.clone()
+        if schema_editor:
+            schema_editor._known_model_tables = frozenset(
+                ms.table for ms in state.models.values()
+            )
         for operation in self.operations:
             if not getattr(operation, "reversible", True):
                 raise ValueError(f"Operation {operation} in {self} is not reversible")
